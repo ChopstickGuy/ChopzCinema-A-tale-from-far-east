@@ -555,9 +555,11 @@ def build():
     for f in sorted((VAN / "textures/item").glob("*.png")):
         if f"item/{f.stem}" not in SAVED:
             save(harmonize(load(f.stem, "item"), smooth=0.0), f.stem, "item")
-    if "--spirits" in sys.argv:          # local-only variant with Spirit's Samurai Gear art
+    # Spirit's Samurai Gear (user's own copy in ref/spirits, private use) is built in when present
+    spirits_src = sys.argv[sys.argv.index("--spirits") + 1] if "--spirits" in sys.argv else ROOT / "ref/spirits"
+    if "--no-spirits" not in sys.argv and Path(spirits_src).exists():
         import spirits
-        spirits.apply(sys.argv[sys.argv.index("--spirits") + 1])
+        spirits.apply(spirits_src)
     if "--no-mods" not in sys.argv:
         build_mods()
     print("built", OUT)

@@ -4,9 +4,9 @@ and re-grade it to fit ChopzTsushima.
 
     .venv/bin/python scripts/build.py --spirits ref/spirits
 
-- armour layers, armour icons, katanas (incl. their 3D-style held models),
-  tools and bow come from Spirit's, graded with our Tsushima look; iron is
-  pulled from olive towards steel so the ore stays recognisable
+- the whole pack is built in (armour, icons, katanas incl. their held models,
+  tools, bow, shield, blocks, entities, sounds), graded with our Tsushima look;
+  armour plates are recoloured to their ore (iron steel, gold gold, diamond teal)
 - our EMF samurai add-ons are replaced by a straw kasa only: its UVs sit in an
   area every Spirit's armour texture leaves empty, so it only shows on leather
 - German/English names for Spirit's re-purposed pieces (cuirass, plate skirt ...)
@@ -21,13 +21,6 @@ from PIL import Image
 import build as B
 
 KASA = {"top": (32, 0, 8, 6), "edge": (32, 6, 8, 1), "cone": (40, 0, 2, 2), "cap": (40, 2, 2, 2)}
-
-ITEMS = [f"{t}_{k}" for t in ("wooden", "stone", "iron", "golden", "diamond", "netherite")
-         for k in ("sword", "pickaxe", "axe", "shovel", "hoe")]
-ITEMS += [f"{m}_{p}" for m in ("leather", "chainmail", "iron", "golden", "diamond", "netherite")
-          for p in ("helmet", "chestplate", "leggings", "boots")]
-ITEMS += [f"leather_{p}_overlay" for p in ("helmet", "chestplate", "leggings", "boots")]
-ITEMS += ["bow", "bow_pulling_0", "bow_pulling_1", "bow_pulling_2"]
 
 NAMES_DE = {
     "helmet": "{m}-Kabuto", "chestplate": "{m}-Schulterplatten", "leggings": "{m}-Kürass", "boots": "{m}-Plattenrock",
@@ -151,15 +144,25 @@ def apply(src):
         if f.stem == "leather_layer_1_overlay":
             a = paint_kasa(a)
         save_png(a, out / "textures/models/armor" / f.name)
-    # item textures + Spirit's katana models
-    for n in ITEMS:
-        f = src / "textures/item" / f"{n}.png"
-        if f.exists():
-            save_png(grade(load(f), n), out / "textures/item" / f.name)
-    for f in (src / "models/item").glob("*_sword.json"):
+    # everything else Spirit's ships: item/block/entity textures, models, sounds
+    for f in sorted((src / "textures").rglob("*.png")):
+        rel = f.relative_to(src / "textures")
+        if rel.parts[0] == "models":
+            continue                                    # armour layers handled above
+        save_png(grade(load(f), f.stem), out / "textures" / rel)
+        meta = f.with_suffix(".png.mcmeta")
+        if meta.exists():
+            shutil.copy(meta, out / "textures" / rel.with_suffix(".png.mcmeta"))
+    for f in sorted((src / "models").rglob("*.json")):
         m = json.loads(f.read_text())
-        m["textures"] = {k: (v if ":" in v else "minecraft:" + v) for k, v in m["textures"].items()}
-        B.write_json(out / "models/item" / f.name, m)
+        if "textures" in m:
+            m["textures"] = {k: (v if ":" in v or v.startswith("#") else "minecraft:" + v.lstrip("./"))
+                             for k, v in m["textures"].items()}
+        B.write_json(out / "models" / f.relative_to(src / "models"), m)
+    for f in sorted((src / "sounds").rglob("*.ogg")):
+        dst = out / "sounds" / f.relative_to(src / "sounds")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(f, dst)
     # EMF: straw kasa only
     cem = out / "optifine/cem"
     shutil.rmtree(cem, ignore_errors=True)
