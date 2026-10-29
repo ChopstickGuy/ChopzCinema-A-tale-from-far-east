@@ -1,166 +1,222 @@
-"""Tools, weapons and armour in Ghost of Tsushima style.
+"""Weapons and tools in Ghost of Tsushima style (32x, drawn procedurally).
 
-Swords become katanas (the wooden one a bokken), the other tools keep their
-vanilla silhouette but get a lacquered handle with cord wrap. The material of
-the head/blade always keeps the colour of its ore, every tier also gets its
-own cord colour. Armour becomes lacquered lamellar plates (kozane) laced with
-the tier's cord colour, helmets get a golden kuwagata crest.
+Swords become katanas (wood: bokken), tools get Japanese heads: tsuruhashi
+pickaxe, ono axe, spade, kama sickle as hoe. The head always keeps the colour
+of its ore; the rarer the ore, the richer the fittings:
+  wooden/stone  rope-bound wooden handle
+  iron          black lacquer, navy silk cord, iron fittings
+  golden        gold fittings, crimson cord
+  diamond       gold fittings, white cord, engraved, gem inlays, tassel
+  netherite     gold fittings, crimson cord, ember glow, tassel
 """
+import math
+
 import numpy as np
 
 import build as B
 
-# material ramps, dark -> light (the ore stays recognisable)
-TIERS = {
+N = 32
+TIERS = {   # head ramp dark -> light
     "wooden":    ["#3a2618", "#5c3e26", "#7e5a3a", "#a07a52", "#c49e70"],
-    "stone":     ["#2c2d33", "#4e5058", "#74767e", "#9c9ea4", "#c4c4c8"],
-    "iron":      ["#2a2e34", "#555b64", "#8a9098", "#c0c6cc", "#f2f4f6"],
+    "stone":     ["#2a2b30", "#4a4c54", "#6e7078", "#96989e", "#c0c0c4"],
+    "iron":      ["#2a2e34", "#545a62", "#8a9098", "#c2c7cc", "#f2f4f6"],
     "golden":    ["#5a3208", "#9a6414", "#d09a28", "#f0c84a", "#fff2a8"],
     "diamond":   ["#0c363c", "#1c6a70", "#36a4a6", "#78d8d0", "#d4fff8"],
-    "netherite": ["#161216", "#2a2226", "#40363a", "#5e5054", "#86767a"],
+    "netherite": ["#140f12", "#272024", "#3c3438", "#5a4e52", "#82747a"],
 }
-# cord (ito) colour per tier: (dark, light)
-CORD = {
-    "wooden":    ("#3a2214", "#6a4428"),
-    "stone":     ("#2e3036", "#5a5e66"),
-    "iron":      ("#14161e", "#343a4c"),
-    "golden":    ("#6a1010", "#b02a22"),
-    "diamond":   ("#0e2440", "#24507a"),
-    "netherite": ("#1e0e22", "#4a2650"),
+LEVEL = {"wooden": 0, "stone": 0, "iron": 1, "golden": 2, "diamond": 3, "netherite": 4}
+GOLD = ["#5a3a10", "#9a6c20", "#d4a440", "#f4dc8a"]
+STYLE = {   # handle (dark, light), cord (dark, light), fittings ramp, ornament colour
+    "wooden":    (("#4a3020", "#7a5434"), ("#8a7448", "#b8a068"), ["#4a3020", "#6a4a30", "#8a6644", "#a88458"], None),
+    "stone":     (("#4a3020", "#7a5434"), ("#8a7448", "#b8a068"), ["#3a3c42", "#5a5c64", "#7e8088", "#a0a2a8"], None),
+    "iron":      (("#120e0e", "#2a2220"), ("#16224a", "#33508e"), ["#2a2e34", "#4e545c", "#7a8088", "#a8aeb4"], None),
+    "golden":    (("#120e0e", "#2a2220"), ("#6a1010", "#bc2c26"), GOLD, None),
+    "diamond":   (("#120e0e", "#2a2220"), ("#bab6aa", "#f4f2ea"), GOLD, "#7af0e8"),
+    "netherite": (("#0c0a0a", "#221a1a"), ("#5a0e1c", "#b4283c"), GOLD, "#ff7a2a"),
 }
-LACQUER = ["#0e0a0a", "#1e1614", "#2e2220", "#40302a"]    # handles / tsuba
-SAME = "#e8e0cc"                                          # white ray-skin under the wrap
-GOLD = ["#6a4010", "#b07a20", "#e2b23c", "#fde68a"]
+SAME = "#e8e0cc"
 
-STICK = {(40, 30, 11), (73, 54, 21), (104, 78, 30), (137, 103, 39)}
+
+class Pix:
+    """32x32 canvas addressed in blade space: `along` runs from the handle (bottom-left) to the
+    tip (top-right), `across` is perpendicular (negative = upper-left = lit side)."""
+
+    def __init__(self):
+        self.a = np.zeros((N, N, 4))
+
+    def put(self, x, y, col):
+        if 0 <= x < N and 0 <= y < N:
+            self.a[y, x, :3] = B.hexc(col) if isinstance(col, str) else col
+            self.a[y, x, 3] = 255
+
+    def fill(self, fn):
+        for y in range(N):
+            for x in range(N):
+                px, py = x + 0.5 - N / 2, y + 0.5 - N / 2
+                along = (px - py) / math.sqrt(2)
+                across = (px + py) / math.sqrt(2)
+                col = fn(along, across, x, y)
+                if col is not None:
+                    self.put(x, y, col)
+
+    def outline(self, col="#0e0a0a"):
+        """dark 1px outline around the shape (classic item look)"""
+        op = np.pad(self.a[..., 3] > 0, 1)
+        edge = op[:-2, 1:-1] | op[2:, 1:-1] | op[1:-1, :-2] | op[1:-1, 2:]
+        edge &= ~op[1:-1, 1:-1]
+        self.a[edge, :3] = B.hexc(col)
+        self.a[edge, 3] = 255
+
+
+def handle(tier, along, across, x, y, start, end, half=1.05):
+    """wrapped grip between `start` and `end` along the blade axis"""
+    if not (start <= along <= end and abs(across) < half):
+        return None
+    (hd, hl), (cd, cl), fit, _ = STYLE[tier]
+    lit = across < 0
+    if LEVEL[tier] == 0:                            # rope bands on plain wood
+        return (cl if lit else cd) if int(along * 1.2) % 4 == 0 else (hl if lit else hd)
+    if (x + y) % 3 == 0:                            # diamond wrap showing white samegawa
+        return SAME if int(along) % 2 == 0 else (cl if lit else cd)
+    return cl if lit else cd
+
+
+def ramp_at(ramp, t):
+    return ramp[max(0, min(len(ramp) - 1, int(round(t * (len(ramp) - 1)))))]
+
+
+def tassel(p, tier):
+    (_, _), (cd, cl), _, _ = STYLE[tier]
+    for i, (x, y) in enumerate(((2, 28), (2, 29), (3, 30), (3, 31), (1, 30))):
+        p.put(x, y, cl if i % 2 == 0 else cd)
 
 
 def katana(tier):
-    """16x16 katana, handle bottom-left, tip top-right."""
-    g = [["." for _ in range(16)] for _ in range(16)]
-
-    def put(x, y, c):
-        if 0 <= x < 16 and 0 <= y < 16:
-            g[y][x] = c
-
-    for x in range(7, 15):                      # edge line, hamon sparkle every third pixel
-        put(x, 14 - x, "e" if x % 3 == 0 else "d")
-    for x in range(8, 16):
-        put(x, 15 - x, "c")
-    for x in range(9, 16):
-        put(x, 16 - x, "a")
-    put(15, 0, "d")
-    for x, y in ((6, 8), (7, 8), (8, 8)):        # habaki
-        put(x, y, "y")
-    for i, (x, y) in enumerate(((4, 7), (5, 8), (6, 9), (7, 10), (8, 11))):   # tsuba
-        put(x, y, "G" if i in (1, 2) else "g")
-    for x, y in ((3, 8), (4, 9), (5, 10), (6, 11), (7, 12)):
-        put(x, y, "g")
-    for i, (x, y) in enumerate(((4, 11), (3, 12), (2, 13), (1, 14))):         # wrapped grip
-        put(x, y, "h" if i % 2 == 0 else "w")
-    for i, (x, y) in enumerate(((5, 11), (4, 12), (3, 13), (2, 14))):
-        put(x, y, "w" if i % 2 == 0 else "H")
-    for x, y in ((0, 15), (1, 15), (0, 14)):    # kashira
-        put(x, y, "k")
-
+    p = Pix()
     ramp = TIERS[tier]
-    cd, cl = CORD[tier]
-    pal = {"a": ramp[1], "c": ramp[2], "d": ramp[3], "e": ramp[4],
-           "y": GOLD[2], "g": LACQUER[1], "G": LACQUER[3], "h": cd, "H": cl, "w": SAME, "k": LACQUER[2]}
-    if tier == "wooden":     # bokken: one piece of wood, no metal
-        pal.update({"y": ramp[1], "e": ramp[3], "w": ramp[3], "G": ramp[1], "g": ramp[0]})
-    return B.sprite(["".join(r) for r in g], pal)
+    (hd, hl), (cd, cl), fit, orn = STYLE[tier]
+    lvl = LEVEL[tier]
+    bokken = tier == "wooden"
+
+    def f(al, ac, x, y):
+        if -21.5 <= al < -19.8 and abs(ac) < 1.3:                 # kashira
+            return fit[2] if ac < 0 else fit[1]
+        h = handle(tier, al, ac, x, y, -19.8, -9.4, 1.15)
+        if h:
+            return ramp[2] if bokken else h
+        if -9.4 <= al < -8.0 and abs(ac) < (2.2 if bokken else 3.6):   # tsuba
+            if orn and abs(abs(ac) - 2.2) < 0.5:
+                return orn                                        # inlay
+            return fit[3] if ac < -2.4 else fit[2] if ac < 0 else fit[1] if lvl >= 2 else hl
+        if -8.0 <= al < -6.8 and abs(ac) < 1.3 and not bokken:     # habaki
+            return GOLD[3] if (lvl >= 2 and ac < 0) else GOLD[2] if lvl >= 2 else fit[2]
+        if -8.0 <= al < 20.5:                                     # blade with sori (curve)
+            t = (al + 8.0) / 28.5
+            co = -1.1 * t * t
+            hw = 1.2 * (1 - max(0.0, (al - 16.5) / 4.2))
+            rel = (ac - co) / max(hw, 0.05)
+            if abs(rel) > 1:
+                return None
+            if bokken:
+                return ramp[3] if rel < -0.2 else ramp[2] if rel < 0.4 else ramp[1]
+            if rel < -0.3:                                        # edge with wavy hamon
+                return ramp[4] if int(al * 1.3) % 3 == 0 else ramp[3]
+            if rel < 0.35:
+                if lvl >= 3 and int(al) % 5 == 0 and al < 6:      # engraving (horimono)
+                    return orn if tier == "netherite" else GOLD[2]
+                return ramp[2]
+            return ramp[1]
+        return None
+
+    p.fill(f)
+    if lvl >= 3:
+        tassel(p, tier)
+    if tier == "netherite":                                       # ember sparks along the edge
+        for (x, y) in ((21, 8), (24, 5), (18, 11), (27, 3)):
+            p.put(x, y, orn)
+    p.outline()
+    return p.a
 
 
-def restyle_tool(name, tier):
-    """Keep the vanilla silhouette: head -> tier ramp, stick -> lacquer with cord wraps."""
-    a = B.load(name, "item")
-    rgb = a[..., :3].astype(int)
-    op = a[..., 3] > 0
-    stick = np.array([[tuple(rgb[y, x]) in STICK for x in range(16)] for y in range(16)]) & op
-    head = op & ~stick
-    out = B.remap(np.where(head[..., None], a, 0), TIERS[tier], smooth=0.0, levels=5, lo=0, hi=100)
-    res = a.copy()
-    res[head, :3] = out[head, :3]
-    cd, cl = CORD[tier]
-    for y in range(16):
-        for x in range(16):
-            if stick[y, x]:
-                L = rgb[y, x].mean()
-                along = x - y                       # stick runs diagonally: wrap bands across it
-                if along % 3 == 0:
-                    col = B.hexc(cl if L > 70 else cd)
-                else:
-                    col = B.hexc(LACQUER[min(3, int(L / 40))])
-                res[y, x, :3] = col
-    return res
+def tool(kind, tier):
+    p = Pix()
+    ramp = TIERS[tier]
+    (hd, hl), (cd, cl), fit, orn = STYLE[tier]
+    lvl = LEVEL[tier]
+
+    def head(al, ac):
+        """shade 0..1 if (al, ac) lies inside the tool head"""
+        if kind == "pickaxe":                                     # tsuruhashi: long curved double pick
+            if abs(ac) > 11.0:
+                return None
+            c = 9.5 - 0.05 * ac * ac
+            th = 1.4 * (1 - (abs(ac) / 12.0) ** 2) + 0.35
+            d = al - c
+            return None if abs(d) > th else 0.5 + 0.45 * (d / th)
+        if kind == "axe":                                         # ono: broad blade on one side
+            if 1.0 <= ac <= 8.0 and abs(al - 9.5) <= 1.5 + 0.55 * ac:
+                return 0.95 if ac > 6.8 else 0.35 + 0.45 * (ac / 8.0)
+            if -3.0 <= ac < 1.0 and abs(al - 9.5) <= 1.7:         # poll
+                return 0.3
+            return None
+        if kind == "shovel":                                      # spade
+            if 6.0 <= al <= 18.0:
+                taper = min(1.0, (18.0 - al) / 3.0) ** 0.5
+                w = (1.4 if al < 8.0 else 3.8) * taper
+                if abs(ac) <= w:
+                    return 0.85 if ac < -w + 1.2 else 0.5 - 0.1 * ac / 4
+            return None
+        if kind == "hoe":                                         # kama: sickle blade
+            if 0.5 <= ac <= 10.0:
+                th = 1.4 - 0.07 * ac
+                d = al - (12.0 - 0.06 * ac * ac)
+                if abs(d) <= th:
+                    return 0.95 if d < -th + 0.9 else 0.45
+            return None
+
+    top = {"pickaxe": 8.6, "axe": 11.4, "shovel": 7.0, "hoe": 12.6}[kind]
+
+    def f(al, ac, x, y):
+        s = head(al, ac)
+        if s is not None:
+            if orn and lvl >= 3 and (x * 5 + y * 3) % 17 == 0 and 0.3 < s < 0.8:
+                return GOLD[2] if tier == "diamond" else orn      # inlays / embers
+            return ramp_at(ramp, s)
+        if top - 2.4 <= al < top - 0.6 and abs(ac) < 1.5:         # collar / ferrule
+            return fit[3] if ac < 0 else fit[1]
+        if -21.5 <= al < -20.0 and abs(ac) < 1.3:                 # end cap
+            return fit[2]
+        h = handle(tier, al, ac, x, y, -20.0, top - 2.4)
+        if h:
+            if lvl >= 1 and not (-16 < al < -6):                  # cord only on the grip, lacquer elsewhere
+                return hl if ac < 0 else hd
+            return h
+        return None
+
+    p.fill(f)
+    if lvl >= 3:
+        tassel(p, tier)
+    p.outline()
+    return p.a
 
 
-def lamellar(layer, ramp, cord, crest=False, bias=-0.08):
-    """Armour layer (64x32): tier ramp + rows of plates (kozane) with vertical silk lacing (kebiki odoshi)."""
-    a = B.remap(layer, ramp, smooth=0.2, levels=5, absolute=True, contrast=1.3, bias=bias)
-    op = a[..., 3] > 0
-    h, w = a.shape[:2]
-    s = w // 64                                    # works for HD layers too
-    cd, cl = B.hexc(cord[0]), B.hexc(cord[1])
-    for y in range(h):
-        for x in range(w):
-            if not op[y, x]:
-                continue
-            yy, xx = y // s, x // s
-            row = yy % 4
-            if row == 0:                            # lacquered top edge of the plate row
-                a[y, x, :3] = np.minimum(a[y, x, :3] * 1.15 + 10, 255)
-            elif row == 3:                          # gap between plate rows
-                a[y, x, :3] *= 0.55
-            elif xx % 3 == 0:                       # silk cords running down over the plates
-                a[y, x, :3] = cl if row == 1 else (cl * 0.7 + cd * 0.3)
-    if crest:                                       # kuwagata crest on the helmet front (8..16, 8..16)
-        for (cx, cy) in ((9, 8), (10, 9), (11, 10), (14, 8), (13, 9), (12, 10), (11, 11), (12, 11)):
-            a[cy * s:(cy + 1) * s, cx * s:(cx + 1) * s, :3] = B.hexc(GOLD[3] if cy < 10 else GOLD[2])
-            a[cy * s:(cy + 1) * s, cx * s:(cx + 1) * s, 3] = 255
-    return a
-
-
-def lace_icon(a, cord):
-    """Small lamellar hint on armour icons: plate seams + a few cord knots, outline untouched."""
-    a = a.copy()
-    op = a[..., 3] > 0
-    inner = op.copy()
-    for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        inner &= np.roll(np.roll(op, dy, 0), dx, 1)
-    cl = B.hexc(cord[1])
-    for y in range(16):
-        for x in range(16):
-            if not inner[y, x]:
-                continue
-            if y % 3 == 2:
-                a[y, x, :3] *= 0.78
-            elif y % 3 == 0 and x % 4 == 1:
-                a[y, x, :3] = cl
-    return a
-
-
-ARMOR_TIERS = {   # armour material name -> (item prefix, ramp, cord, brightness bias)
-    "iron":      ("iron",      TIERS["iron"], ("#10121a", "#a8282a"), -0.16),
-    "gold":      ("golden",    TIERS["golden"], ("#3a0a0a", "#1c1a2e"), 0.06),
-    "diamond":   ("diamond",   TIERS["diamond"], ("#0a1a30", "#e8e0cc"), -0.04),
-    "netherite": ("netherite", TIERS["netherite"], ("#140a18", "#8a3a96"), 0.08),
-    "chainmail": ("chainmail", ["#1e2024", "#3a3e44", "#5e646c", "#8a9098", "#b8bec4"], ("#2a1a12", "#7a5030"), -0.08),
+KATANA_DISPLAY = {   # held slightly flatter and longer, like a drawn katana
+    "thirdperson_righthand": {"rotation": [0, -90, 40], "translation": [0, 4.5, 1.5], "scale": [0.95, 0.95, 0.95]},
+    "thirdperson_lefthand": {"rotation": [0, 90, -40], "translation": [0, 4.5, 1.5], "scale": [0.95, 0.95, 0.95]},
+    "firstperson_righthand": {"rotation": [0, -90, 25], "translation": [1.13, 3.6, 1.13], "scale": [0.72, 0.72, 0.72]},
+    "firstperson_lefthand": {"rotation": [0, 90, -25], "translation": [1.13, 3.6, 1.13], "scale": [0.72, 0.72, 0.72]},
 }
 
 
 def build_items():
+    mdl = B.MOD / "item"
     for tier in TIERS:
         B.save(katana(tier), f"{tier}_sword", "item")
-        for tool in ("pickaxe", "axe", "shovel", "hoe"):
-            B.save(restyle_tool(f"{tier}_{tool}", tier), f"{tier}_{tool}", "item")
+        B.write_json(mdl / f"{tier}_sword.json", {"parent": "minecraft:item/handheld",
+                                                  "textures": {"layer0": f"minecraft:item/{tier}_sword"},
+                                                  "display": KATANA_DISPLAY})
+        for kind in ("pickaxe", "axe", "shovel", "hoe"):
+            B.save(tool(kind, tier), f"{tier}_{kind}", "item")
 
-    for mat, (prefix, ramp, cord, bias) in ARMOR_TIERS.items():
-        for layer in (1, 2):
-            src = B.load(f"{mat}_layer_{layer}", "models/armor")
-            B.save(lamellar(src, ramp, cord, crest=(layer == 1 and mat != "chainmail"), bias=bias),
-                   f"{mat}_layer_{layer}", "models/armor")
-        for piece in ("helmet", "chestplate", "leggings", "boots"):
-            item = B.remap(B.load(f"{prefix}_{piece}", "item"), ramp, smooth=0.0, levels=5)
-            B.save(lace_icon(item, cord), f"{prefix}_{piece}", "item")
+    import armor3d                  # 3D samurai armour (EMF models + 32x textures)
+    armor3d.build_armor()
