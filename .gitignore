@@ -1,0 +1,10 @@
+# third-party / generated inputs (not ours to redistribute)
+vanilla/
+mods/
+dl/
+ref/
+.venv/
+__pycache__/
+# build output (released as zip via GitHub Releases)
+pack/
+dist/*.zip
