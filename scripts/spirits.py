@@ -1,6 +1,6 @@
 """Local-only variant: use the armour / weapon / tool art of "Spirit's Samurai Gear"
 (by rikitikitivi, not redistributable - the user supplies their own download)
-and re-grade it to fit ChopzTsushima.
+and re-grade it to fit ChopzCinema - A tale from far east.
 
     .venv/bin/python scripts/build.py --spirits ref/spirits
 
@@ -20,6 +20,7 @@ from PIL import Image
 
 import build as B
 
+OWN_BLOCKS = {"chiseled_nether_bricks"}   # part of our Yomi Nether set
 KASA = {"top": (32, 0, 8, 6), "edge": (32, 6, 8, 1), "cone": (40, 0, 2, 2), "cap": (40, 2, 2, 2)}
 
 NAMES_DE = {
@@ -147,8 +148,8 @@ def apply(src):
     # everything else Spirit's ships: item/block/entity textures, models, sounds
     for f in sorted((src / "textures").rglob("*.png")):
         rel = f.relative_to(src / "textures")
-        if rel.parts[0] == "models":
-            continue                                    # armour layers handled above
+        if rel.parts[0] == "models" or f.stem in OWN_BLOCKS:
+            continue                                    # armour layers handled above / our own Nether style
         save_png(grade(load(f), f.stem), out / "textures" / rel)
         meta = f.with_suffix(".png.mcmeta")
         if meta.exists():

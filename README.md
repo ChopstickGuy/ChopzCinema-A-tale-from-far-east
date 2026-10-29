@@ -1,4 +1,4 @@
-# ChopzTsushima
+# ChopzCinema – A tale from far east
 
 Resource-Pack im Stil von **Ghost of Tsushima** für Minecraft 1.20.1 und das
 [TruTopia-Modpack](https://modrinth.com/project/yzxnGSON) (Forge, Create, Distant Horizons).
@@ -28,7 +28,7 @@ Die Texturen werden aus den Vanilla-Texturen generiert (die nicht im Repo liegen
 ```bash
 uv venv .venv && uv pip install --python .venv/bin/python pillow numpy
 scripts/fetch_vanilla.sh            # oder: scripts/fetch_vanilla.sh /pfad/zu/1.20.1.jar
-.venv/bin/python scripts/build.py   # -> pack/ChopzTsushima (--no-mods: ohne Mod-Texturen)
+.venv/bin/python scripts/build.py   # -> "pack/ChopzCinema A tale from far east" (--no-mods: ohne Mod-Texturen)
 ```
 
 `scripts/sheet.py` erzeugt eine Vorschau-Tafel der Texturen mit Biom-Färbung.

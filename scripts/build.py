@@ -1,4 +1,4 @@
-"""Build the ChopzTsushima resource pack from vanilla 1.20.1 textures.
+"""Build the "ChopzCinema A tale from far east" resource pack from vanilla 1.20.1 textures.
 
 Approach: keep every block's pixel structure (so blocks stay recognisable),
 reduce texture noise, and remap luminance onto hand-picked hue-shifted colour
@@ -14,7 +14,8 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 VAN = ROOT / "vanilla/assets/minecraft"
-OUT = ROOT / "pack/ChopzTsushima"
+PACK_NAME = "ChopzCinema A tale from far east"
+OUT = ROOT / "pack" / PACK_NAME
 TEX = OUT / "assets/minecraft/textures"
 MODS = ROOT / "mods/ex/assets"          # block textures extracted from the TruTopia mod jars
 # namespaces whose textures are generated at runtime from (our) vanilla textures, or templates
@@ -144,6 +145,28 @@ def leaves(name, ramp, need=5, **kw):
     save(remap(densify(load_leaf(name), need), ramp, **kw), name)
 
 
+def save_icon(path):
+    """pack icon: torii gate in front of a red sun over golden susuki"""
+    S = 128
+    yy, xx = np.mgrid[0:S, 0:S].astype(float)
+    sky = np.clip(yy / S, 0, 1)[..., None]
+    a = np.dstack([(hexc("#f2c88a") * (1 - sky) + hexc("#c8603a") * sky), np.full((S, S), 255.0)])
+    sun = (xx - 64) ** 2 + (yy - 54) ** 2 < 30 ** 2
+    a[sun, :3] = hexc("#b81e1e")
+    field = yy > 96 + 3 * np.sin(xx / 9)
+    a[field, :3] = hexc("#d8a440") * (0.8 + 0.2 * ((xx[field] + yy[field]) % 3 == 0))[:, None]
+    red, dark = hexc("#a8201a"), hexc("#1a1010")
+    a[28:36, 16:112, :3] = dark          # kasagi (top beam)
+    a[24:30, 10:118, :3] = dark
+    a[46:52, 26:102, :3] = red           # nuki
+    for x0 in (34, 86):                  # pillars
+        a[30:112, x0:x0 + 9, :3] = red
+        a[30:112, x0 + 7:x0 + 9, :3] = red * 0.7
+    a[36:46, 60:68, :3] = red            # gakuzuka
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), "RGBA").save(path)
+
+
 def frames(a):
     """Split an (animated) strip into square frames."""
     w = a.shape[1]
@@ -188,6 +211,26 @@ def ore(name, base_ramp, src_base=None, thresh=0.14, **kw):
 
 
 RAMP_OF = {}   # vanilla block name -> (ramp, remap kwargs), reused for Chipped variants
+
+
+def ore_on_base(name, base_name, base_ramp, **kw):
+    """ore whose host rock is pixel-identical to another block (Nether ores on netherrack)"""
+    a, base = load(name), load(base_name)
+    same = np.all(np.abs(a[..., :3] - base[..., :3]) < 1, -1)
+    out = harmonize(a, smooth=0.0, vibrance=0.2)
+    out[same, :3] = remap(base, base_ramp, **kw)[same, :3]
+    save(out, name)
+
+
+def over_base(name, base_name, top_ramp, base_ramp, **kw):
+    """side textures that repeat another block (e.g. nylium side = netherrack + moss):
+    pixels identical to the base block get its ramp, the rest the top ramp"""
+    a, base = load(name), load(base_name)
+    same = np.all(np.abs(a[..., :3] - base[:a.shape[0], :a.shape[1], :3]) < 1, -1)
+    top, bot = remap(a, top_ramp, **kw), remap(base, base_ramp, **kw)
+    out = top.copy()
+    out[same, :3] = bot[same, :3]
+    save(out, name)
 
 
 def do(name, ramp, kind="block", src=None, **kw):
@@ -259,6 +302,25 @@ BIRCH_PLANK = ["#8a7c62", "#a69878", "#bfb292", "#d4c8aa", "#e6dcc2"]   # pale a
 KEYAKI_PLANK = ["#5a2e1e", "#764030", "#925440", "#aa6a50", "#c08262"]  # jungle -> zelkova
 DEEPSLATE = ["#24262e", "#33363f", "#444852", "#575b66", "#6c707a"]
 SNOW = ["#b8c4d2", "#ccd6e2", "#dce4ee", "#e8eef6", "#f6f9fc"]
+
+# Nether = Yomi (underworld): volcanic black rock, lava veins, burnt lacquer temples,
+# crimson forests in higanbana red, warped forests in pale ghost turquoise
+YOMI_ROCK = ["#2a100e", "#461a16", "#66241c", "#883226", "#a84432"]
+YOMI_BRICK = ["#160e10", "#241618", "#341c1c", "#4a221e", "#682e24"]
+YOMI_RED_BRICK = ["#3a0a0a", "#5e1410", "#821e16", "#a42c1e", "#c2402a"]
+BASALT = ["#121214", "#202024", "#323238", "#48484e", "#626268"]
+BLACKSTONE = ["#1a1618", "#28222a", "#3a3238", "#4e444a", "#685c60"]
+ASH = ["#262020", "#3a322e", "#504640", "#685c52", "#827264"]
+HIGANBANA = ["#3a080c", "#5e0e16", "#8a181e", "#b42826", "#d84232"]
+CRIMSON_BARK = ["#16080a", "#2a1014", "#42161a", "#5c1e22", "#78282a"]
+CRIMSON_PLANK = ["#2a0c0e", "#421416", "#5c1c1c", "#762824", "#90362c"]
+GHOST = ["#0c2626", "#163c3a", "#225652", "#36766e", "#5a9c92"]
+GHOST_BARK = ["#161e20", "#263234", "#3a4848", "#526462", "#748a86"]
+GHOST_PLANK = ["#34403f", "#485856", "#5e7470", "#768e88", "#92aaa2"]
+# End = Takamagahara (heavenly plain): moonlit pale granite, lavender ivory temples, spirit trees
+END_STONE = ["#86857c", "#a2a196", "#bab9ac", "#cfcec2", "#e2e1d6"]
+PURPUR = ["#62546e", "#7e6e92", "#9a8aae", "#b6a8c8", "#d2c8e0"]
+SPIRIT_TREE = ["#34263e", "#56446e", "#8270a2", "#b2a0ce", "#e2d8f4"]
 
 
 # ---------------------------------------------------------------- colormaps
@@ -390,7 +452,8 @@ def build():
     OUT.mkdir(parents=True)
     write_json(OUT / "pack.mcmeta", {"pack": {
         "pack_format": 15,
-        "description": "§6ChopzTsushima §7- Ghost of Tsushima Stil für TruTopia"}})
+        "description": "§6ChopzCinema §7- §fA tale from far east\n§7Ghost of Tsushima Stil für TruTopia"}})
+    save_icon(OUT / "pack.png")
 
     # colormaps
     save(colormap("grass"), "grass", "colormap")
@@ -506,6 +569,51 @@ def build():
 
     # flowers
     save(sprite(SPIDER_LILY, LILY_PAL), "poppy")
+
+    # ------------------------------------------------ Nether (Yomi)
+    do("netherrack", YOMI_ROCK, smooth=0.45, levels=6)
+    for n in ("nether_bricks", "cracked_nether_bricks", "chiseled_nether_bricks"):
+        do(n, YOMI_BRICK, smooth=0.3, levels=6)
+    do("red_nether_bricks", YOMI_RED_BRICK, smooth=0.3, levels=6)
+    for n in ("basalt_side", "basalt_top", "polished_basalt_side", "polished_basalt_top", "smooth_basalt"):
+        do(n, BASALT, smooth=0.35, levels=6)
+    for n in ("blackstone", "blackstone_top", "polished_blackstone", "polished_blackstone_bricks",
+              "cracked_polished_blackstone_bricks", "chiseled_polished_blackstone"):
+        do(n, BLACKSTONE, smooth=0.35, levels=6)
+    ore("gilded_blackstone", BLACKSTONE, smooth=0.35, levels=6)
+    ore_on_base("nether_gold_ore", "netherrack", YOMI_ROCK, smooth=0.45, levels=6)
+    ore_on_base("nether_quartz_ore", "netherrack", YOMI_ROCK, smooth=0.45, levels=6)
+    for n in ("soul_sand", "soul_soil"):
+        do(n, ASH, smooth=0.4, levels=6)
+    do("crimson_nylium", HIGANBANA, smooth=0.4, levels=6)
+    over_base("crimson_nylium_side", "netherrack", HIGANBANA, YOMI_ROCK, smooth=0.4, levels=6)
+    do("nether_wart_block", HIGANBANA, smooth=0.4, levels=6)
+    for n in ("crimson_fungus", "crimson_roots", "weeping_vines", "weeping_vines_plant",
+              "nether_wart_stage0", "nether_wart_stage1", "nether_wart_stage2"):
+        do(n, HIGANBANA, smooth=0.1, levels=6)
+    do("crimson_stem", CRIMSON_BARK, smooth=0.2, levels=6)
+    do("crimson_stem_top", CRIMSON_PLANK, smooth=0.3, levels=6)
+    for n in ("crimson_planks", "crimson_door_top", "crimson_door_bottom", "crimson_trapdoor"):
+        do(n, CRIMSON_PLANK, smooth=0.35, levels=6)
+    do("warped_nylium", GHOST, smooth=0.4, levels=6)
+    over_base("warped_nylium_side", "netherrack", GHOST, YOMI_ROCK, smooth=0.4, levels=6)
+    do("warped_wart_block", GHOST, smooth=0.4, levels=6)
+    for n in ("warped_fungus", "warped_roots", "twisting_vines", "twisting_vines_plant"):
+        do(n, GHOST, smooth=0.1, levels=6)
+    do("warped_stem", GHOST_BARK, smooth=0.2, levels=6)
+    do("warped_stem_top", GHOST_PLANK, smooth=0.3, levels=6)
+    for n in ("warped_planks", "warped_door_top", "warped_door_bottom", "warped_trapdoor"):
+        do(n, GHOST_PLANK, smooth=0.35, levels=6)
+    for n in ("glowstone", "shroomlight"):
+        save(harmonize(load(n), smooth=0.2, vibrance=0.2), n)
+
+    # ------------------------------------------------ End (Takamagahara)
+    do("end_stone", END_STONE, smooth=0.55, levels=5)
+    do("end_stone_bricks", END_STONE, smooth=0.35, levels=6)
+    for n in ("purpur_block", "purpur_pillar", "purpur_pillar_top"):
+        do(n, PURPUR, smooth=0.4, levels=6)
+    for n in ("chorus_plant", "chorus_flower", "chorus_flower_dead"):
+        do(n, SPIRIT_TREE, smooth=0.25, levels=6)
 
     # everything else in vanilla gets the gentle grade
     skip = ("water_", "lava_", "fire_", "soul_fire_", "nether_portal", "end_portal", "end_gateway",
