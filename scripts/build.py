@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parent.parent
 VAN = ROOT / "vanilla/assets/minecraft"
 OUT = ROOT / "pack/ChopzTsushima"
 TEX = OUT / "assets/minecraft/textures"
+MODS = ROOT / "mods/ex/assets"          # block textures extracted from the TruTopia mod jars
+# namespaces whose textures are generated at runtime from (our) vanilla textures, or templates
+MOD_SKIP = {"everycomp", "moonlight", "betterleaves"}
 MOD = OUT / "assets/minecraft/models"
 BL = ROOT / "third_party/betterleaves"   # Motschen's Better Leaves (MIT), shipped in TruTopia
 LEAF_TYPES = ("oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "cherry",
@@ -32,7 +35,11 @@ def load(name, kind="block"):
     return np.array(Image.open(VAN / "textures" / kind / f"{name}.png").convert("RGBA")).astype(float)
 
 
+SAVED = set()
+
+
 def save(arr, name, kind="block"):
+    SAVED.add(f"{kind}/{name}")
     p = TEX / kind / f"{name}.png"
     p.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(np.clip(arr, 0, 255).round().astype(np.uint8), "RGBA").save(p)
@@ -71,7 +78,7 @@ def sample_ramp(t, ramp):
     return ramp[i] * (1 - f) + ramp[i + 1] * f
 
 
-def remap(a, ramp, smooth=0.45, levels=None, contrast=1.0, bias=0.0, lo=3, hi=97):
+def remap(a, ramp, smooth=0.45, levels=None, contrast=1.0, bias=0.0, lo=3, hi=97, absolute=False):
     """Luminance -> colour ramp.
 
     smooth   : 0..1, how much per-pixel noise is replaced by the local mean
@@ -84,7 +91,7 @@ def remap(a, ramp, smooth=0.45, levels=None, contrast=1.0, bias=0.0, lo=3, hi=97
     L = lum(a)
     if op.sum() < 2:
         return a.copy()
-    l0, l1 = np.percentile(L[op], lo), np.percentile(L[op], hi)
+    l0, l1 = (0.0, 255.0) if absolute else (np.percentile(L[op], lo), np.percentile(L[op], hi))
     t = np.clip((L - l0) / max(l1 - l0, 1e-3), 0, 1)
     if smooth > 0:
         t = t * (1 - smooth) + blur_wrap(t, op.astype(float)) * smooth
@@ -137,7 +144,55 @@ def leaves(name, ramp, need=5, **kw):
     save(remap(densify(load_leaf(name), need), ramp, **kw), name)
 
 
+def frames(a):
+    """Split an (animated) strip into square frames."""
+    w = a.shape[1]
+    return [a[i:i + w] for i in range(0, a.shape[0] - w + 1, w)] if a.shape[0] % w == 0 else [a]
+
+
+def harmonize(a, smooth=0.25, tone=1.0, vibrance=0.12):
+    """Gentle Tsushima grade for everything without a hand-picked ramp:
+    less pixel noise, cool shadows, warm highlights, bolder saturated colours."""
+    out = []
+    for f in frames(a):
+        f = f.copy()
+        op = (f[..., 3] > 0).astype(float)
+        rgb = f[..., :3] / 255.0
+        if smooth > 0:
+            blurred = np.dstack([blur_wrap(rgb[..., c], op) for c in range(3)])
+            rgb = rgb * (1 - smooth) + blurred * smooth
+        L = lum(rgb)[..., None]
+        sh = np.clip((0.5 - L) / 0.5, 0, 1) ** 1.5
+        hl = np.clip((L - 0.5) / 0.5, 0, 1) ** 1.5
+        rgb = rgb + tone * (sh * np.array([-0.02, -0.01, 0.035]) + hl * np.array([0.035, 0.015, -0.03]))
+        mx, mn = rgb.max(-1, keepdims=True), rgb.min(-1, keepdims=True)
+        sat = (mx - mn) / np.maximum(mx, 1e-4)
+        k = 1 + vibrance * (1 - sat)          # push colourful pixels, leave greys alone
+        mean = rgb.mean(-1, keepdims=True)
+        rgb = mean + (rgb - mean) * np.where(sat > 0.08, k, 1.0)
+        f[..., :3] = np.clip(rgb, 0, 1) * 255
+        out.append(f)
+    return np.concatenate(out, 0)
+
+
+def ore(name, base_ramp, src_base=None, thresh=0.14, **kw):
+    """Ore block: the host rock gets the same ramp as its stone, ore specks are only graded."""
+    a = load(name)
+    mx = a[..., :3].max(-1)
+    sat = (mx - a[..., :3].min(-1)) / np.maximum(mx, 1)
+    rock = (sat < thresh) & (lum(a) > 60)    # dark coal specks stay dark
+    host = remap(a, base_ramp, **kw)
+    out = harmonize(a, smooth=0.0, vibrance=0.2)
+    out[rock, :3] = host[rock, :3]
+    save(out, name)
+
+
+RAMP_OF = {}   # vanilla block name -> (ramp, remap kwargs), reused for Chipped variants
+
+
 def do(name, ramp, kind="block", src=None, **kw):
+    if kind == "block":
+        RAMP_OF[name] = (ramp, kw)
     save(remap(load(src or name, kind), ramp, **kw), name, kind)
 
 
@@ -198,6 +253,12 @@ EARTH_WALL = ["#6e5a44", "#8a7256", "#a28a6a", "#b8a07e", "#ccb692"]
 MOSS = ["#344f22", "#4a6a2e", "#62843a", "#7c9e4a", "#98b85e"]
 PAPER_GLOW = ["#b05a22", "#d8823a", "#f0aa58", "#fad08a", "#fff0c8"]
 LANTERN_WOOD = ["#160f0c", "#261a14", "#3a281e", "#4e382a", "#624836"]
+
+THATCH = ["#54452e", "#76623e", "#94804e", "#ae9a62", "#c6b27a"]   # straw roofs
+BIRCH_PLANK = ["#8a7c62", "#a69878", "#bfb292", "#d4c8aa", "#e6dcc2"]   # pale ash
+KEYAKI_PLANK = ["#5a2e1e", "#764030", "#925440", "#aa6a50", "#c08262"]  # jungle -> zelkova
+DEEPSLATE = ["#24262e", "#33363f", "#444852", "#575b66", "#6c707a"]
+SNOW = ["#b8c4d2", "#ccd6e2", "#dce4ee", "#e8eef6", "#f6f9fc"]
 
 
 # ---------------------------------------------------------------- colormaps
@@ -276,6 +337,28 @@ PAMPAS_PLUME = [
 ]
 
 WISTERIA_PAL = {"p": "#b48ce6", "P": "#8c5ccc", "l": "#dcc4f6", "d": "#5e3a96"}
+
+
+def shoji():
+    """White stained glass -> shoji paper screen with a dark wooden lattice."""
+    a = np.zeros((16, 16, 4))
+    a[..., :3] = hexc("#efe6d0")
+    a[..., 3] = 212
+    a[::2, 1::2, :3] -= 6          # faint paper fibre
+    wood = hexc("#3e2a1e")
+    for x in (0, 8):
+        a[:, x, :3], a[:, x, 3] = wood, 255
+    for y in (0, 5, 10):
+        a[y, :, :3], a[y, :, 3] = wood, 255
+    return a
+
+
+def shoji_edge():
+    a = np.zeros((16, 16, 4))
+    a[..., :3] = hexc("#3e2a1e")
+    a[..., 3] = 255
+    a[:, ::4, :3] = hexc("#4e3626")
+    return a
 
 
 def wisteria_overlay():
@@ -390,8 +473,48 @@ def build():
     for n in ("lantern",):
         save(split_remap(load(n), PAPER_GLOW, LANTERN_WOOD, smooth=0.0, levels=6), n)
 
+    # more wood
+    for kind, plank in (("birch", BIRCH_PLANK), ("jungle", KEYAKI_PLANK)):
+        do(f"{kind}_planks", plank, smooth=0.45, levels=6)
+        for part in ("door_top", "door_bottom", "trapdoor"):
+            do(f"{kind}_{part}", plank, smooth=0.3, levels=6)
+    do("birch_log_top", BIRCH_PLANK, smooth=0.3, levels=6)
+    do("stripped_birch_log", BIRCH_PLANK, smooth=0.4, levels=6)
+    do("stripped_birch_log_top", BIRCH_PLANK, smooth=0.3, levels=6)
+    do("jungle_log", ["#2a1a14", "#3e281e", "#56382a", "#6c4a36", "#825c44"], smooth=0.35, levels=6)
+
+    # thatch, shoji, snow, deepslate
+    do("hay_block_side", THATCH, smooth=0.15, levels=6)
+    do("hay_block_top", THATCH, smooth=0.25, levels=6)
+    save(shoji(), "white_stained_glass")
+    save(shoji_edge(), "white_stained_glass_pane_top")
+    do("snow", SNOW, smooth=0.6, levels=4)
+    do("powder_snow", SNOW, smooth=0.5, levels=4)
+    save(split_remap(load("grass_block_snow"), DIRT, SNOW, thresh=0.15, min_lum=0, smooth=0.4, levels=5),
+         "grass_block_snow")
+    for n in ("deepslate", "deepslate_top", "cobbled_deepslate", "polished_deepslate", "deepslate_bricks",
+              "cracked_deepslate_bricks", "chiseled_deepslate"):
+        do(n, DEEPSLATE, smooth=0.35, levels=6)
+
+    # ores sit in the same rock as their stone
+    for n in ("coal_ore", "iron_ore", "copper_ore", "gold_ore", "redstone_ore", "lapis_ore",
+              "diamond_ore", "emerald_ore"):
+        ore(n, STONE, smooth=0.5, levels=5)
+        ore(f"deepslate_{n}", DEEPSLATE, smooth=0.35, levels=6)
+    save(split_remap(load("soul_lantern"), ["#2a5a7a", "#4a8aaa", "#7ab8d0", "#b0dcea", "#e4f6fa"],
+                     LANTERN_WOOD, smooth=0.0, levels=6), "soul_lantern")
+
     # flowers
     save(sprite(SPIDER_LILY, LILY_PAL), "poppy")
+
+    # everything else in vanilla gets the gentle grade
+    skip = ("water_", "lava_", "fire_", "soul_fire_", "nether_portal", "end_portal", "end_gateway",
+            "destroy_stage_", "debug", "structure_block", "jigsaw", "barrier")
+    for f in sorted((VAN / "textures/block").glob("*.png")):
+        n = f.stem
+        if f"block/{n}" in SAVED or n.startswith(skip):
+            continue
+        save(harmonize(load(n)), n)
 
     # ------------------------------------------------ models
     bm = MOD / "block"
@@ -425,7 +548,55 @@ def build():
     if not (bm / "birch_leaves.json").exists():
         write_json(bm / "birch_leaves.json", {"parent": "minecraft:block/cube_all",
                                               "textures": {"all": "minecraft:block/birch_leaves"}})
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    sys.modules.setdefault("build", sys.modules[__name__])   # items.py uses our helpers
+    import items
+    items.build_items()
+    for f in sorted((VAN / "textures/item").glob("*.png")):
+        if f"item/{f.stem}" not in SAVED:
+            save(harmonize(load(f.stem, "item"), smooth=0.0), f.stem, "item")
+    if "--no-mods" not in sys.argv:
+        build_mods()
     print("built", OUT)
+
+
+def grade_mod_texture(a, ns, sub, rel):
+    base = rel.parts[0] if len(rel.parts) > 1 else None
+    if sub == "block" and ns == "chipped":
+        if base in RAMP_OF and not base.endswith("_leaves"):
+            ramp, kw = RAMP_OF[base]
+            return np.concatenate([remap(fr, ramp, **kw) for fr in frames(a)], 0)
+        return harmonize(a)
+    return harmonize(a, smooth=0.0)   # keep machine details / connected textures / icons crisp
+
+
+def build_mods():
+    """Grade every mod texture (blocks, items, armour); Chipped variants reuse their vanilla block's ramp."""
+    if not MODS.exists():
+        print("no mod textures (mods/ex) - skipping mods")
+        return
+    count = 0
+    for ns_dir in sorted(MODS.iterdir()):
+        ns = ns_dir.name
+        if ns in MOD_SKIP:
+            continue
+        for sub in ("block", "item", "models/armor"):
+            src_root = ns_dir / "textures" / sub
+            for f in sorted(src_root.rglob("*.png")):
+                rel = f.relative_to(src_root)
+                try:
+                    a = np.array(Image.open(f).convert("RGBA")).astype(float)
+                except Exception:
+                    continue
+                dst = OUT / "assets" / ns / "textures" / sub / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                out = grade_mod_texture(a, ns, sub, rel)
+                Image.fromarray(np.clip(out, 0, 255).round().astype(np.uint8), "RGBA").save(dst)
+                meta = f.with_suffix(".png.mcmeta")
+                if meta.exists():
+                    shutil.copy(meta, dst.with_suffix(".png.mcmeta"))
+                count += 1
+    print("mod textures:", count)
 
 
 if __name__ == "__main__":

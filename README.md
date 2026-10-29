@@ -10,6 +10,9 @@ Gedacht als Gegenstück zum Shader [ChopzCinema](https://github.com/ChopstickGuy
 - Hohes Gras mit Pampas-Rispen, Mohn als rote Spinnenlilie (Higanbana), Glyzinien-Azaleen
 - Japanische Baumaterialien: Kawara-Dachziegel (Tiefenschiefer-Fliesen), Putz (weiße
   Keramik/Beton), Schrein-Zinnober (rote Keramik/Beton), Papierlaternen
+- Alle übrigen Vanilla- und Mod-Texturen (≈26.000, inkl. Create + Addons, Chipped) farblich angeglichen
+- Schwerter als Katanas (Holz = Bokken), Werkzeuge mit Lackstiel und Schnurwicklung,
+  Rüstungen als Samurai-Lamellen mit Seidenschnürung – Erzfarbe bleibt immer erkennbar
 - Buschiges Laub auf Basis von Better Leaves (MIT, © Motschen) – sieht mit und ohne
   Better Leaves gleich aus
 
@@ -25,7 +28,13 @@ Die Texturen werden aus den Vanilla-Texturen generiert (die nicht im Repo liegen
 ```bash
 uv venv .venv && uv pip install --python .venv/bin/python pillow numpy
 scripts/fetch_vanilla.sh            # oder: scripts/fetch_vanilla.sh /pfad/zu/1.20.1.jar
-.venv/bin/python scripts/build.py   # -> pack/ChopzTsushima
+.venv/bin/python scripts/build.py   # -> pack/ChopzTsushima (--no-mods: ohne Mod-Texturen)
 ```
 
 `scripts/sheet.py` erzeugt eine Vorschau-Tafel der Texturen mit Biom-Färbung.
+
+Für die Mod-Texturen werden die Mod-Jars des Modpacks nach `mods/jars` geladen und die
+Texturen nach `mods/ex` entpackt (siehe `scripts/fetch_mods.sh`).
+
+> Hinweis: Die angepassten Mod-Texturen basieren auf den Originalen der jeweiligen Mods –
+> das Pack ist nur für den privaten Gebrauch auf dem TruTopia-Server gedacht.

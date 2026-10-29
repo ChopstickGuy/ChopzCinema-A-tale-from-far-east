@@ -16,7 +16,9 @@ S=6; T=16*2*S; cols=6
 rows=(len(items)+cols-1)//cols
 sheet=Image.new('RGB',(cols*(T+10),rows*(T+24)),(40,40,44)); d=ImageDraw.Draw(sheet)
 for k,(n,tm,tint,lab) in enumerate(items):
-    a=np.array(Image.open(B/f'{n}.png').convert('RGBA')).astype(float)[:16]
+    a=np.array(Image.open(B/f'{n}.png').convert('RGBA')).astype(float)
+    w=a.shape[1]; a=a[:w]
+    if w==32: a=a[8:24,8:24]  # Better Leaves: centre is the block face
     if tint is not None: a[...,:3]*=tint/255
     bg=np.full((16,16,3),(120,150,190.)); m=a[...,3:4]/255
     rgb=a[...,:3]*m+bg*(1-m)
